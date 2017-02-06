@@ -1,0 +1,34 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: testkronjob
+  labels:
+    app: testkronjob
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: testkronjob
+    spec:
+      containers:
+      - name: testkronjob
+        image: eneco/kronjob:latest
+        imagePullPolicy: Always
+        env:
+        - name: SCHEDULE
+          value: "@every 20s"
+        - name: RESTART_POLICY
+          value: OnFailure
+        - name: TEMPLATE
+          value: |-
+            containers:
+            - name: myjob
+              image: alpine
+              imagePullPolicy: Always
+              args:
+              - exit
+              - 1
+              env:
+              - name: MYVAR
+                value: Hello
