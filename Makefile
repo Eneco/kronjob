@@ -29,9 +29,11 @@ build:
 
 run:
 	-kubectl delete namespace kronjob-test
-	make docker publish_docker
-	kubectl create namespace kronjob-test
-	kubectl create -f test.yaml --namespace=kronjob-test
+	make docker publish_docker apply
+
+apply:
+	-kubectl create namespace kronjob-test
+	kubectl apply -f examples/random-fail.yaml --namespace=kronjob-test
 	kubectl get pods --namespace kronjob-test
 
 # builds a statically linked binary for linux-amd64

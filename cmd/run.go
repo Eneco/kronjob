@@ -2,6 +2,7 @@ package main
 
 import (
 	"os"
+	"strconv"
 	"strings"
 
 	"github.com/Sirupsen/logrus"
@@ -37,14 +38,22 @@ func init() {
 
 	schedule := os.Getenv("SCHEDULE")
 	template := os.Getenv("TEMPLATE")
+	deadline := os.Getenv("DEADLINE")
 	restartPolicy := os.Getenv("RESTART_POLICY")
 	containerName := os.Getenv("HOSTNAME")
 	allowParallel := strings.ToLower(os.Getenv("ALLOW_PARALLEL")) == "true"
+
+	if deadline == "" {
+		deadline = "60"
+	}
+
+	deadlineInt, _ := strconv.Atoi(deadline)
 
 	f.BoolVarP(&cfg.Verbose, "verbose", "v", false, "be verbose. defaults to false")
 	f.BoolVarP(&cfg.AllowParallel, "allow-parallel", "p", allowParallel, "allow jobs to run in parallel. defaults to false")
 	f.StringVar(&cfg.Schedule, "schedule", schedule, "the cron schedule to use")
 	f.StringVar(&cfg.Template, "template", template, "the job template to use")
+	f.IntVar(&cfg.Deadline, "deadline", deadlineInt, "the jobs deadline in seconds. defaults to 60")
 	f.StringVar(&cfg.RestartPolicy, "restart-policy", restartPolicy, "the restartPolicy to use")
 	f.StringVar(&cfg.ContainerName, "container-name", containerName, "the name of the container that runs kronjob. this is automatically set by kubernetes in each pod. used to find which namespace the jobs should run in")
 

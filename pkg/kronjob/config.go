@@ -4,6 +4,7 @@ package kronjob
 type Config struct {
 	AllowParallel bool
 	ContainerName string
+	Deadline      int
 	RestartPolicy string
 	Schedule      string
 	Template      string
