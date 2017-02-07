@@ -39,7 +39,6 @@ func init() {
 	schedule := os.Getenv("SCHEDULE")
 	template := os.Getenv("TEMPLATE")
 	deadline := os.Getenv("DEADLINE")
-	restartPolicy := os.Getenv("RESTART_POLICY")
 	containerName := os.Getenv("HOSTNAME")
 	allowParallel := strings.ToLower(os.Getenv("ALLOW_PARALLEL")) == "true"
 
@@ -54,7 +53,6 @@ func init() {
 	f.StringVar(&cfg.Schedule, "schedule", schedule, "the cron schedule to use")
 	f.StringVar(&cfg.Template, "template", template, "the job template to use")
 	f.IntVar(&cfg.Deadline, "deadline", deadlineInt, "the jobs deadline in seconds. defaults to 60")
-	f.StringVar(&cfg.RestartPolicy, "restart-policy", restartPolicy, "the restartPolicy to use")
 	f.StringVar(&cfg.ContainerName, "container-name", containerName, "the name of the container that runs kronjob. this is automatically set by kubernetes in each pod. used to find which namespace the jobs should run in")
 
 	rootCmd.AddCommand(runCmd)
