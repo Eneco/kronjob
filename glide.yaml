@@ -1,0 +1,14 @@
+package: github.com/eneco/kronjob
+import:
+- package: github.com/Sirupsen/logrus
+  version: ^0.11.0
+- package: github.com/spf13/cobra
+- package: github.com/x-cray/logrus-prefixed-formatter
+- package: k8s.io/client-go
+  version: ^2.0.0-alpha.1
+  subpackages:
+  - kubernetes
+  - kubernetes/typed/core/v1
+  - rest
+- package: github.com/robfig/cron
+- package: gopkg.in/yaml.v2

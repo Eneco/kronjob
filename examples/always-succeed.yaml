@@ -1,0 +1,31 @@
+apiVersion: extensions/v1beta1
+kind: Deployment
+metadata:
+  name: kronjob-alwayssucceed
+  labels:
+    app: kronjob-alwayssucceed
+spec:
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: kronjob-alwayssucceed
+    spec:
+      containers:
+      - name: kronjob-alwayssucceed
+        image: eneco/kronjob:latest
+        imagePullPolicy: Always
+        env:
+        - name: SCHEDULE
+          value: "@every 30s"
+        - name: TEMPLATE
+          value: |-
+            containers:
+            - name: myjob
+              image: alpine
+              imagePullPolicy: Always
+              command:
+                - /bin/sh
+                - -c
+              args:
+                - "echo hello world; sleep 5; exit 0"
