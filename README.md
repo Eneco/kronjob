@@ -1,3 +1,5 @@
+[![Build Status](https://travis-ci.org/Eneco/kronjob.svg?branch=master)](https://travis-ci.org/Eneco/kronjob)
+
 # kronjob
 
 Kronjob takes a job template and a cron schedule. It creates, manages, watches and afterwards cleans
