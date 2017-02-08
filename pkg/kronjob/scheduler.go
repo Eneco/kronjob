@@ -193,7 +193,7 @@ func (s *Scheduler) WaitForJob(job *batchv1.Job, stopChan chan bool) error {
 					// sometimes the Kube API does not return the last pod, so I add a delay to this
 					go func() {
 						time.Sleep(5 * time.Second)
-						err = s.CleanJob(job)
+						err := s.CleanJob(job)
 						if err != nil {
 							logrus.WithField("job", job.Name).WithField("error", err).Warn("Unable to clean job")
 						}
@@ -245,7 +245,7 @@ func (s *Scheduler) TailJob(job *batchv1.Job) (chan bool, error) {
 				return
 			case event = <-watcher.ResultChan():
 				// We sometimes seem to receive events with a nil Object
-				if event.Object != nil {
+				if event.Object == nil {
 					continue
 				}
 
@@ -289,6 +289,7 @@ func (s *Scheduler) PodLogs(pod *v1.Pod) string {
 	}).Stream()
 	if err != nil {
 		logrus.WithField("error", err).WithField("pod", pod.Name).Error("Failed retrieving logs for job pod")
+		return ""
 	}
 	defer reader.Close()
 

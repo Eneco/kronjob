@@ -51,7 +51,7 @@ From a terminal:
   make bootstrap build
 ```
 
-Outputs the landscaper binary in `./build/kronjob`.
+Outputs the kronjob binary in `./build/kronjob`.
 
 ## Example Usage
 

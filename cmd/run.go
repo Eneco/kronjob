@@ -16,7 +16,7 @@ var runCmd = &cobra.Command{
 	Short: "Starts the kronjob scheduler",
 	RunE: func(cmd *cobra.Command, args []string) error {
 		if cfg.Schedule == "" {
-			return errors.New("a scheduled is required through either the environment or the --schedule parameter")
+			return errors.New("a schedule is required through either the environment or the --schedule parameter")
 		}
 		if cfg.Template == "" {
 			return errors.New("a job template is required through either the environment or the --template parameter")
