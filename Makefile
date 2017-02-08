@@ -44,6 +44,9 @@ docker: dockerbinary
 	cp docker/* ./$(BUILD_DIR)/
 	docker build -t eneco/kronjob ./$(BUILD_DIR)/
 	docker tag eneco/kronjob eneco/kronjob:latest
+	docker tag eneco/kronjob eneco/kronjob:$(GIT_TAG)
+
 
 publish_docker: docker
 	docker push eneco/kronjob:latest
+	docker push eneco/kronjob:$(GIT_TAG)
