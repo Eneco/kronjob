@@ -1,5 +1,5 @@
-hash: bc953031f5da4a30dce734231f258d7128e96d578fef7d2e0f23984fcf89fda9
-updated: 2017-02-06T16:49:48.509652944+01:00
+hash: f97cbe424c59230b09ad78b6aef84040da6341e5de1ce1cc84274073b95f8457
+updated: 2017-02-08T12:08:11.745498147+01:00
 imports:
 - name: cloud.google.com/go
   version: 3b1ae45394a234c385be014e9a488f2bb6eef821
@@ -80,7 +80,7 @@ imports:
 - name: github.com/robfig/cron
   version: b024fc5ea0e34bc3f83d9941c8d60b0622bfaca4
 - name: github.com/Sirupsen/logrus
-  version: d26492970760ca5d33129d2d799e34be5c4782eb
+  version: c078b1e43f58d563c74cebe63c85789e76ddb627
 - name: github.com/spf13/cobra
   version: 9495bc009a56819bdb0ddbc1a373e29c140bc674
 - name: github.com/spf13/pflag
@@ -90,7 +90,7 @@ imports:
   subpackages:
   - codec
 - name: github.com/x-cray/logrus-prefixed-formatter
-  version: 1d837bc239d1686e1ae281c4629495bd0e7da8d5
+  version: 9cd0cf058806896bf8ca66f9a957d36bd9e4ce0f
 - name: golang.org/x/net
   version: e90d6d0afc4c315a0d87a568ae68577cc15149a0
   subpackages:
@@ -138,6 +138,8 @@ imports:
   - urlfetch
 - name: gopkg.in/inf.v0
   version: 3887ee99ecf07df5b447e9b00d9c0b2adaa9f3e4
+- name: gopkg.in/robfig/cron.v2
+  version: be2e0b0deed5a68ffee390b4583a13aff8321535
 - name: gopkg.in/yaml.v2
   version: 53feefa2559fb8dfa8d81baad31be332c97d6c77
 - name: k8s.io/client-go

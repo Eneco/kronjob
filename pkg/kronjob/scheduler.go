@@ -7,7 +7,7 @@ import (
 	"time"
 
 	"github.com/Sirupsen/logrus"
-	"github.com/robfig/cron"
+	"gopkg.in/robfig/cron.v2"
 	"gopkg.in/yaml.v2"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/pkg/api/unversioned"
@@ -37,8 +37,7 @@ func NewScheduler(cfg *Config) (*Scheduler, error) {
 		client: client,
 	}
 
-	logrus.
-		WithField("namespace", scheduler.Namespace()).Info("Created scheduler")
+	logrus.WithField("namespace", scheduler.Namespace()).Info("Created scheduler")
 
 	return scheduler, nil
 }
@@ -193,8 +192,8 @@ func (s *Scheduler) WaitForJob(job *batchv1.Job, stopChan chan bool) error {
 					// Clean up the job's pods and the job itself. For some unknown reason if I do this instantly
 					// sometimes the Kube API does not return the last pod, so I add a delay to this
 					go func() {
-						time.Sleep(3 * time.Second)
-						err = s.CleanJob(job)
+						time.Sleep(5 * time.Second)
+						err := s.CleanJob(job)
 						if err != nil {
 							logrus.WithField("job", job.Name).WithField("error", err).Warn("Unable to clean job")
 						}
@@ -202,6 +201,7 @@ func (s *Scheduler) WaitForJob(job *batchv1.Job, stopChan chan bool) error {
 
 					return nil
 				}
+
 				if latestJob.Status.Failed > currentFailures {
 					logrus.
 						WithField("failed", latestJob.Status.Failed).
@@ -232,6 +232,7 @@ func (s *Scheduler) TailJob(job *batchv1.Job) (chan bool, error) {
 		return nil, err
 	}
 
+	createdPods := make(map[string]bool)
 	processedPods := make(map[string]bool)
 
 	// We spin up a new routine that watched for events happening related to pods for the job
@@ -244,39 +245,33 @@ func (s *Scheduler) TailJob(job *batchv1.Job) (chan bool, error) {
 				return
 			case event = <-watcher.ResultChan():
 				// We sometimes seem to receive events with a nil Object
-				if event.Object != nil {
-					eventPod := event.Object.(*v1.Pod)
+				if event.Object == nil {
+					continue
+				}
 
-					// If this pod was already processed (either failed or succeeded) then discard the event
-					if processedPods[eventPod.Name] {
-						continue
-					}
+				eventPod := event.Object.(*v1.Pod)
 
-					if eventPod.Status.Phase == v1.PodRunning {
-						logrus.WithField("job", job.Name).WithField("pod", eventPod.Name).Info("New pod for job created")
-					}
+				// If this pod was already processed (either failed or succeeded) then discard the event
+				if processedPods[eventPod.Name] {
+					continue
+				}
 
-					if eventPod.Status.Phase == v1.PodFailed || eventPod.Status.Phase == v1.PodSucceeded {
-						// We keep a log of pods we have processed to ensure we only retrieve the logs for it once
-						processedPods[eventPod.Name] = true
+				if eventPod.Status.Phase == v1.PodRunning && !createdPods[eventPod.Name] {
+					logrus.WithField("job", job.Name).WithField("pod", eventPod.Name).Info("New pod for job created")
+					createdPods[eventPod.Name] = true
+				}
 
-						sinceTime := unversioned.NewTime(time.Now().Add(time.Duration(-1 * time.Hour)))
-						reader, err := s.client.Core().Pods(s.Namespace()).GetLogs(eventPod.Name, &v1.PodLogOptions{
-							SinceTime: &sinceTime,
-						}).Stream()
-						if err != nil {
-							logrus.WithField("error", err).WithField("pod", eventPod.Name).Error("Failed retrieving logs for job pod")
-						}
-						defer reader.Close()
+				if eventPod.Status.Phase == v1.PodFailed || eventPod.Status.Phase == v1.PodSucceeded {
+					// We keep a log of pods we have processed to ensure we only retrieve the logs for it once
+					processedPods[eventPod.Name] = true
 
-						buf := new(bytes.Buffer)
-						buf.ReadFrom(reader)
+					// Now retrieve the actual logs
+					logs := s.PodLogs(eventPod)
 
-						if eventPod.Status.Phase == v1.PodFailed {
-							logrus.WithField("logs", "\n"+buf.String()).Error("Pod execution failed")
-						} else {
-							logrus.WithField("logs", "\n"+buf.String()).Info("Pod execution succeeded")
-						}
+					if eventPod.Status.Phase == v1.PodFailed {
+						logrus.WithField("logs", "\n"+logs).Error("Pod execution failed")
+					} else {
+						logrus.WithField("logs", "\n"+logs).Info("Pod execution succeeded")
 					}
 				}
 			}
@@ -286,6 +281,24 @@ func (s *Scheduler) TailJob(job *batchv1.Job) (chan bool, error) {
 	return stopChan, nil
 }
 
+// PodLogs retrieves the pods for a pod in kubernetes
+func (s *Scheduler) PodLogs(pod *v1.Pod) string {
+	sinceTime := unversioned.NewTime(time.Now().Add(time.Duration(-1 * time.Hour)))
+	reader, err := s.client.Core().Pods(s.Namespace()).GetLogs(pod.Name, &v1.PodLogOptions{
+		SinceTime: &sinceTime,
+	}).Stream()
+	if err != nil {
+		logrus.WithField("error", err).WithField("pod", pod.Name).Error("Failed retrieving logs for job pod")
+		return ""
+	}
+	defer reader.Close()
+
+	buf := new(bytes.Buffer)
+	buf.ReadFrom(reader)
+
+	return buf.String()
+}
+
 // HasRunningJob checks if there is already a job running
 func (s *Scheduler) HasRunningJob() bool {
 	return s.running > 0
@@ -293,8 +306,8 @@ func (s *Scheduler) HasRunningJob() bool {
 
 // Namespace retrieves the namespace kronjob is running in to determine where to run jobs
 func (s *Scheduler) Namespace() string {
-	if s.namespace != "" {
-		return s.namespace
+	if s.cfg.Namespace != "" {
+		return s.cfg.Namespace
 	}
 
 	// Figure out which namespace we are running in
@@ -308,9 +321,9 @@ func (s *Scheduler) Namespace() string {
 		logrus.Fatal(errors.New("Failed to find pod namespace. Are you sure you are running kronjob inside a kubernetes container?"))
 	}
 
-	s.namespace = pods.Items[0].Namespace
+	s.cfg.Namespace = pods.Items[0].Namespace
 
-	return s.namespace
+	return s.cfg.Namespace
 }
 
 // JobSpec creates a new kubernetes Job spec based on the configured template

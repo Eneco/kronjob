@@ -5,6 +5,7 @@ type Config struct {
 	AllowParallel bool
 	ContainerName string
 	Deadline      int
+	Namespace     string
 	Schedule      string
 	Template      string
 	Verbose       bool
