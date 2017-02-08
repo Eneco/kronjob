@@ -1,5 +1,5 @@
-hash: b8486841f69e401ceb2334bbf816985f8357caf5bc4319d645b1dce76797db84
-updated: 2017-02-08T11:48:42.669534535+01:00
+hash: f97cbe424c59230b09ad78b6aef84040da6341e5de1ce1cc84274073b95f8457
+updated: 2017-02-08T12:08:11.745498147+01:00
 imports:
 - name: cloud.google.com/go
   version: 3b1ae45394a234c385be014e9a488f2bb6eef821
@@ -90,7 +90,7 @@ imports:
   subpackages:
   - codec
 - name: github.com/x-cray/logrus-prefixed-formatter
-  version: 1d837bc239d1686e1ae281c4629495bd0e7da8d5
+  version: 9cd0cf058806896bf8ca66f9a957d36bd9e4ce0f
 - name: golang.org/x/net
   version: e90d6d0afc4c315a0d87a568ae68577cc15149a0
   subpackages:
