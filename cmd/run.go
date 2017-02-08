@@ -1,6 +1,7 @@
 package main
 
 import (
+	"errors"
 	"os"
 	"strconv"
 	"strings"
@@ -14,6 +15,13 @@ var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Starts the kronjob scheduler",
 	RunE: func(cmd *cobra.Command, args []string) error {
+		if cfg.Schedule == "" {
+			return errors.New("a scheduled is required through either the environment or the --schedule parameter")
+		}
+		if cfg.Template == "" {
+			return errors.New("a job template is required through either the environment or the --template parameter")
+		}
+
 		v := kronjob.GetVersion()
 
 		scheduler, err := kronjob.NewScheduler(cfg)
@@ -40,6 +48,7 @@ func init() {
 	template := os.Getenv("TEMPLATE")
 	deadline := os.Getenv("DEADLINE")
 	containerName := os.Getenv("HOSTNAME")
+	namespace := os.Getenv("NAMESPACE")
 	allowParallel := strings.ToLower(os.Getenv("ALLOW_PARALLEL")) == "true"
 
 	if deadline == "" {
@@ -49,11 +58,12 @@ func init() {
 	deadlineInt, _ := strconv.Atoi(deadline)
 
 	f.BoolVarP(&cfg.Verbose, "verbose", "v", false, "be verbose. defaults to false")
-	f.BoolVarP(&cfg.AllowParallel, "allow-parallel", "p", allowParallel, "allow jobs to run in parallel. defaults to false")
 	f.StringVar(&cfg.Schedule, "schedule", schedule, "the cron schedule to use")
 	f.StringVar(&cfg.Template, "template", template, "the job template to use")
 	f.IntVar(&cfg.Deadline, "deadline", deadlineInt, "the jobs deadline in seconds. defaults to 60")
 	f.StringVar(&cfg.ContainerName, "container-name", containerName, "the name of the container that runs kronjob. this is automatically set by kubernetes in each pod. used to find which namespace the jobs should run in")
+	f.StringVar(&cfg.Namespace, "namespace", namespace, "the namespace the jobs should be run in")
+	f.BoolVarP(&cfg.AllowParallel, "allow-parallel", "p", allowParallel, "allow jobs to run in parallel. defaults to false")
 
 	rootCmd.AddCommand(runCmd)
 }

@@ -10,5 +10,5 @@ import:
   - kubernetes
   - kubernetes/typed/core/v1
   - rest
-- package: github.com/robfig/cron
+- package: gopkg.in/robfig/cron.v2
 - package: gopkg.in/yaml.v2
