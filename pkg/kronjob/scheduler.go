@@ -2,13 +2,14 @@ package kronjob
 
 import (
 	"bytes"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/ghodss/yaml"
 	"gopkg.in/robfig/cron.v2"
-	"gopkg.in/yaml.v2"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/pkg/api/unversioned"
 	"k8s.io/client-go/pkg/api/v1"
@@ -342,7 +343,16 @@ func (s *Scheduler) JobSpec() *batchv1.JobSpec {
 		Parallelism:           &parallelism,
 		Template:              v1.PodTemplateSpec{},
 	}
-	err := yaml.Unmarshal([]byte(s.cfg.Template), &jobSpec.Template.Spec)
+
+	// Apparently there are some issues when unmarshalling yaml straight into a PodTemplateSpec
+	// Thus we first conver tto json, and then unmarshal from there
+	// Back to json
+	jsonSpec, err := yaml.YAMLToJSON([]byte(s.cfg.Template))
+	if err != nil {
+		logrus.Fatal(err)
+	}
+
+	err = json.Unmarshal(jsonSpec, &jobSpec.Template.Spec)
 	if err != nil {
 		logrus.Fatal(err)
 	}
