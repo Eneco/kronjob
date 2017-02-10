@@ -1,5 +1,5 @@
-hash: f97cbe424c59230b09ad78b6aef84040da6341e5de1ce1cc84274073b95f8457
-updated: 2017-02-08T12:08:11.745498147+01:00
+hash: 7d43cf5104b3a2434bc44d0a8f600b0adae66cd02a7067aa1d5063acc0c435f3
+updated: 2017-02-10T19:49:16.388959397+01:00
 imports:
 - name: cloud.google.com/go
   version: 3b1ae45394a234c385be014e9a488f2bb6eef821
@@ -77,8 +77,6 @@ imports:
   version: 8a290539e2e8629dbc4e6bad948158f790ec31f4
 - name: github.com/PuerkitoBio/urlesc
   version: 5bd2802263f21d8788851d5305584c82a5c75d7e
-- name: github.com/robfig/cron
-  version: b024fc5ea0e34bc3f83d9941c8d60b0622bfaca4
 - name: github.com/Sirupsen/logrus
   version: c078b1e43f58d563c74cebe63c85789e76ddb627
 - name: github.com/spf13/cobra

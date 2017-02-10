@@ -29,3 +29,11 @@ spec:
                 - -c
               args:
                 - "echo hello world; sleep 5; exit 1"
+              env:
+              - name: TEST
+                value: "hello world"
+              resources:
+                limits:
+                memory: 512Mi
+              requests:
+                memory: 256Mi
