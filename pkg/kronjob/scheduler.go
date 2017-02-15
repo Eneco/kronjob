@@ -47,12 +47,6 @@ func NewScheduler(cfg *Config) (*Scheduler, error) {
 func (s *Scheduler) Run() error {
 	errChan := make(chan error)
 
-	// We begin by executing the job once straight away
-	err := s.Exec()
-	if err != nil {
-		return err
-	}
-
 	c := cron.New()
 	c.AddFunc(s.cfg.Schedule, func() {
 		errChan <- s.Exec()
@@ -193,7 +187,7 @@ func (s *Scheduler) WaitForJob(job *batchv1.Job, stopChan chan bool) error {
 					// Clean up the job's pods and the job itself. For some unknown reason if I do this instantly
 					// sometimes the Kube API does not return the last pod, so I add a delay to this
 					go func() {
-						time.Sleep(5 * time.Second)
+						time.Sleep(10 * time.Second)
 						err := s.CleanJob(job)
 						if err != nil {
 							logrus.WithField("job", job.Name).WithField("error", err).Warn("Unable to clean job")
