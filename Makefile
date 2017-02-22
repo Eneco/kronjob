@@ -7,9 +7,9 @@ GIT_TAG := $(shell git describe --tags --dirty 2>/dev/null)
 VERSION := $(shell git describe --tags --abbrev=0 2>/dev/null)
 
 # inject version info into version vars
-LD_RELEASE_FLAGS += -X github.com/eneco/kronjob/src/kronjob.GitCommit=${GIT_COMMIT}
-LD_RELEASE_FLAGS += -X github.com/eneco/kronjob/src/kronjob.GitTag=${GIT_TAG}
-LD_RELEASE_FLAGS += -X github.com/eneco/kronjob/src/kronjob.SemVer=${VERSION}
+LD_RELEASE_FLAGS += -X github.com/eneco/kronjob/pkg/kronjob.GitCommit=${GIT_COMMIT}
+LD_RELEASE_FLAGS += -X github.com/eneco/kronjob/pkg/kronjob.GitTag=${GIT_TAG}
+LD_RELEASE_FLAGS += -X github.com/eneco/kronjob/pkg/kronjob.SemVer=${VERSION}
 
 .PHONY: default bootstrap clean test build static docker
 
