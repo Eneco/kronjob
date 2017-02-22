@@ -17,7 +17,7 @@ spec:
         imagePullPolicy: Always
         env:
         - name: SCHEDULE
-          value: "@every 30s"
+          value: "@every 15s"
         - name: TEMPLATE
           value: |-
             containers:

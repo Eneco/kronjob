@@ -23,7 +23,6 @@ var runCmd = &cobra.Command{
 		}
 
 		v := kronjob.GetVersion()
-
 		scheduler, err := kronjob.NewScheduler(cfg)
 		if err != nil {
 			return err
@@ -32,10 +31,7 @@ var runCmd = &cobra.Command{
 		logrus.WithFields(logrus.Fields{"tag": v.GitTag, "commit": v.GitCommit}).Infof("This is Kronjob v%s", v.SemVer)
 		logrus.WithFields(logrus.Fields{"schedule": cfg.Schedule, "verbose": cfg.Verbose}).Info("Start the scheduler")
 
-		err = scheduler.Run()
-		if err != nil {
-			return err
-		}
+		scheduler.Run()
 
 		return nil
 	},
