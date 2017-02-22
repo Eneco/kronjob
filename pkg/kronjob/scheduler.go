@@ -5,6 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/Sirupsen/logrus"
@@ -19,11 +22,13 @@ import (
 
 // Scheduler is responsible for executing the job template on a given cron schedule
 type Scheduler struct {
-	cfg       *Config
-	client    *kubernetes.Clientset
-	jobSpec   *batchv1.JobSpec
-	namespace string
-	running   int
+	cfg               *Config
+	client            *kubernetes.Clientset
+	cron              *cron.Cron
+	currentExecutions map[string]*Execution
+	jobSpec           *batchv1.JobSpec
+	namespace         string
+	shutdownCh        chan error
 }
 
 // NewScheduler creates and initializes a Scheduler which can be used to execute the job template on a given cron schedule
@@ -34,8 +39,11 @@ func NewScheduler(cfg *Config) (*Scheduler, error) {
 	}
 
 	scheduler := &Scheduler{
-		cfg:    cfg,
-		client: client,
+		cfg:               cfg,
+		client:            client,
+		cron:              cron.New(),
+		currentExecutions: map[string]*Execution{},
+		shutdownCh:        makeShutdownCh(),
 	}
 
 	logrus.WithField("namespace", scheduler.Namespace()).Info("Created scheduler")
@@ -44,28 +52,44 @@ func NewScheduler(cfg *Config) (*Scheduler, error) {
 }
 
 // Run starts the cron schedule and blocks until an error is potentially returned in the job execution
-func (s *Scheduler) Run() error {
-	errChan := make(chan error)
-
-	c := cron.New()
-	c.AddFunc(s.cfg.Schedule, func() {
-		errChan <- s.Exec()
+func (s *Scheduler) Run() {
+	s.cron.AddFunc(s.cfg.Schedule, func() {
+		err := s.Exec()
+		if err != nil {
+			s.shutdownCh <- err
+		}
 	})
-	c.Start()
 
-	for {
-		select {
-		case err := <-errChan:
-			if err != nil {
-				return err
-			}
+	s.cron.Start()
+
+	err := <-s.shutdownCh
+	if err != nil {
+		s.Stop(err)
+		logrus.Fatal(err)
+	}
+
+	logrus.Info("Initiating graceful shutdown")
+	s.Stop(nil)
+}
+
+// Stop tries to do a graceful shutdown, cleaning up all currently running jobs
+func (s *Scheduler) Stop(stopErr error) {
+	s.cron.Stop()
+
+	for _, execution := range s.currentExecutions {
+		execution.Stop(stopErr)
+		delete(s.currentExecutions, execution.Job.Name)
+
+		err := s.CleanJob(execution)
+		if err != nil {
+			logrus.WithField("error", err).Warn("Potential jobs & pods remaining after unsuccessful graceful shutdown")
 		}
 	}
 }
 
 // Exec is the method being called on the cronschedule. It creates a job, reads it's logs, waits for it to complete and then cleans it up
 func (s *Scheduler) Exec() error {
-	if !s.cfg.AllowParallel && s.HasRunningJob() {
+	if !s.cfg.AllowParallel && s.IsRunning() {
 		return nil
 	}
 
@@ -75,19 +99,27 @@ func (s *Scheduler) Exec() error {
 		return err
 	}
 
-	// Tail the logs for the job
-	stopChan, err := s.TailJob(job)
+	execution := NewExecution(job)
+	s.currentExecutions[execution.Job.Name] = execution
+
+	// Start watching the job
+	err = s.MonitorJob(execution)
 	if err != nil {
 		return err
 	}
 
-	// Now wait for it to be completed
-	err = s.WaitForJob(job, stopChan)
+	// Start watching any pods created for the job
+	err = s.MonitorPods(execution)
 	if err != nil {
 		return err
 	}
 
 	return nil
+}
+
+// IsRunning checks if there is already a job running
+func (s *Scheduler) IsRunning() bool {
+	return len(s.currentExecutions) > 0
 }
 
 // CreateJob instantiates a new job in the kubernetes namespace
@@ -113,25 +145,29 @@ func (s *Scheduler) CreateJob() (*batchv1.Job, error) {
 
 	logrus.WithField("job", name).Info("Job created")
 
-	s.running = s.running + 1
-
 	return job, nil
 }
 
 // CleanJob removes the job and it's associated pods from kubernetes
-func (s *Scheduler) CleanJob(job *batchv1.Job) error {
-	logrus.WithField("job", job.Name).Info("Deleting job...")
-	err := s.client.Batch().Jobs(s.Namespace()).Delete(job.Name, v1.NewDeleteOptions(0))
-	if err != nil {
-		logrus.WithField("error", err).WithField("job", job).Warn("Unable to clean up job!")
+func (s *Scheduler) CleanJob(execution *Execution) error {
+	if execution.Cleaned {
+		return nil
 	}
 
-	s.running = s.running - 1
+	logrus.WithField("job", execution.Job.Name).Info("Deleting job...")
+	err := s.client.Batch().Jobs(s.Namespace()).Delete(execution.Job.Name, v1.NewDeleteOptions(0))
+	if err != nil {
+		logrus.WithField("error", err).WithField("job", execution.Job.Name).Warn("Unable to clean up job!")
+	}
 
-	logrus.WithField("job", job.Name).Info("Retrieving pods for job...")
-	pods, err := s.JobPods(job)
+	logrus.WithField("job", execution.Job.Name).Info("Retrieving pods for job...")
+	pods, err := s.JobPods(execution.Job)
 	if err != nil {
 		return err
+	}
+
+	if len(execution.Pods) != len(pods) {
+		logrus.WithField("created", execution.Pods).WithField("cleaning", pods).Warn("Created pods and cleaning pods is unequal in length")
 	}
 
 	for _, pod := range pods {
@@ -142,7 +178,9 @@ func (s *Scheduler) CleanJob(job *batchv1.Job) error {
 		}
 	}
 
-	logrus.WithField("job", job.Name).Info("Job successfully cleaned up")
+	logrus.WithField("job", execution.Job.Name).Info("Job successfully cleaned up")
+	execution.Cleaned = true
+
 	return nil
 }
 
@@ -158,122 +196,137 @@ func (s *Scheduler) JobPods(job *batchv1.Job) ([]v1.Pod, error) {
 	return pods.Items, nil
 }
 
-// WaitForJob creates a watcher in kubernetes, and waits for the job to have completed successfully
-func (s *Scheduler) WaitForJob(job *batchv1.Job, stopChan chan bool) error {
+// MonitorJob creates a watcher in kubernetes, and waits for the job to have completed successfully
+func (s *Scheduler) MonitorJob(execution *Execution) error {
 	watcher, err := s.client.Batch().Jobs(s.Namespace()).Watch(v1.ListOptions{
-		FieldSelector: fmt.Sprintf("metadata.name=%s", job.Name),
+		FieldSelector: fmt.Sprintf("metadata.name=%s", execution.Job.Name),
 	})
 	if err != nil {
 		return err
 	}
 
-	currentFailures := int32(0)
-	event := watch.Event{}
-	startTime := time.Now()
-	for {
-		select {
-		case event = <-watcher.ResultChan():
-			latestJob := event.Object.(*batchv1.Job)
-			if event.Type == watch.Modified {
-				if latestJob.Status.Succeeded > 0 || time.Since(startTime).Seconds() > float64(s.cfg.Deadline) {
-					if latestJob.Status.Succeeded > 0 {
-						logrus.WithField("job", job.Name).Info("Completed job...")
-					} else {
-						logrus.WithField("job", job.Name).Error("Failed to complete job within deadline...")
-					}
-
-					stopChan <- true
-
-					// Clean up the job's pods and the job itself. For some unknown reason if I do this instantly
-					// sometimes the Kube API does not return the last pod, so I add a delay to this
-					go func() {
-						time.Sleep(10 * time.Second)
-						err := s.CleanJob(job)
-						if err != nil {
-							logrus.WithField("job", job.Name).WithField("error", err).Warn("Unable to clean job")
-						}
-					}()
-
-					return nil
-				}
-
-				if latestJob.Status.Failed > currentFailures {
-					logrus.
-						WithField("failed", latestJob.Status.Failed).
-						WithField("job", latestJob.Name).
-						Infof("Job execution failed")
-					currentFailures = latestJob.Status.Failed
-					continue
-				}
-
-				if latestJob.Status.Active > 0 {
-					logrus.
-						WithField("job", latestJob.Name).
-						Info("Job activated...")
-				}
-			}
-		}
-	}
-}
-
-// TailJob will tail the logs for the job's pod and write them to our own stdout
-func (s *Scheduler) TailJob(job *batchv1.Job) (chan bool, error) {
-	stopChan := make(chan bool, 1)
-
-	watcher, err := s.client.Core().Pods(s.Namespace()).Watch(v1.ListOptions{
-		LabelSelector: fmt.Sprintf("job-name=%s", job.Name),
-	})
-	if err != nil {
-		return nil, err
-	}
-
-	createdPods := make(map[string]bool)
-	processedPods := make(map[string]bool)
-
-	// We spin up a new routine that watched for events happening related to pods for the job
 	go func() {
+		logrus.WithField("job", execution.Job.Name).Info("Start monitoring job")
+
 		event := watch.Event{}
 		for {
 			select {
-			case <-stopChan:
-				logrus.WithField("job", job.Name).Info("Stop tailing pods for job...")
+			case <-execution.StopJobWatchCh:
+				logrus.WithField("job", execution.Job.Name).Info("Stop monitoring job")
 				return
+
 			case event = <-watcher.ResultChan():
-				// We sometimes seem to receive events with a nil Object
-				if event.Object == nil {
-					continue
-				}
-
-				eventPod := event.Object.(*v1.Pod)
-
-				// If this pod was already processed (either failed or succeeded) then discard the event
-				if processedPods[eventPod.Name] {
-					continue
-				}
-
-				if eventPod.Status.Phase == v1.PodRunning && !createdPods[eventPod.Name] {
-					logrus.WithField("job", job.Name).WithField("pod", eventPod.Name).Info("New pod for job created")
-					createdPods[eventPod.Name] = true
-				}
-
-				if eventPod.Status.Phase == v1.PodFailed || eventPod.Status.Phase == v1.PodSucceeded {
-					// We keep a log of pods we have processed to ensure we only retrieve the logs for it once
-					processedPods[eventPod.Name] = true
-
-					// Now retrieve the actual logs
-					logs := s.PodLogs(eventPod)
-
-					if eventPod.Status.Phase == v1.PodFailed {
-						logrus.WithField("logs", "\n"+logs).Error("Pod execution failed")
-					} else {
-						logrus.WithField("logs", "\n"+logs).Info("Pod execution succeeded")
-					}
-				}
+				s.HandleJobEvent(&event, execution)
 			}
 		}
 	}()
 
-	return stopChan, nil
+	return nil
+}
+
+// MonitorPods will tail the logs for the job's pod and write them to our own stdout
+func (s *Scheduler) MonitorPods(execution *Execution) error {
+	watcher, err := s.client.Core().Pods(s.Namespace()).Watch(v1.ListOptions{
+		LabelSelector: fmt.Sprintf("job-name=%s", execution.Job.Name),
+	})
+	if err != nil {
+		return err
+	}
+
+	// We spin up a new routine that watched for events happening related to pods for the job
+	go func() {
+		logrus.WithField("job", execution.Job.Name).Info("Start tailing pods for job")
+
+		event := watch.Event{}
+		for {
+			select {
+			case <-execution.StopPodWatchCh:
+				logrus.WithField("job", execution.Job.Name).Info("Stop tailing pods for job...")
+				return
+			case event = <-watcher.ResultChan():
+				s.HandlePodEvent(&event, execution)
+			}
+		}
+	}()
+
+	return nil
+}
+
+// HandleJobEvent expects a kubernetes watch event for a Job and handles deadlines, success/failure and activation of jobs
+func (s *Scheduler) HandleJobEvent(event *watch.Event, execution *Execution) {
+	// The events for this watcher contain a Job as their object, so cast it to a Job
+	latestJob := event.Object.(*batchv1.Job)
+
+	if event.Type != watch.Modified {
+		return
+	}
+
+	if latestJob.Status.Succeeded > 0 || time.Since(execution.StartTime).Seconds() > float64(s.cfg.Deadline) {
+		if latestJob.Status.Succeeded > 0 {
+			logrus.WithField("job", execution.Job.Name).Info("Completed job...")
+		} else {
+			logrus.WithField("job", execution.Job.Name).Error("Failed to complete job within deadline...")
+		}
+
+		execution.Stop(nil)
+		delete(s.currentExecutions, execution.Job.Name)
+		s.CleanJob(execution)
+		return
+	}
+
+	if latestJob.Status.Failed > execution.Failures {
+		logrus.
+			WithField("failed", latestJob.Status.Failed).
+			WithField("job", latestJob.Name).
+			Infof("Job execution failed")
+		execution.Failures = latestJob.Status.Failed
+		return
+	}
+
+	if latestJob.Status.Active > 0 {
+		logrus.
+			WithField("job", latestJob.Name).
+			Info("Job activated...")
+		return
+	}
+}
+
+// HandlePodEvent expects a kubernetes watch event for a Pod and handles success/failure and log processing for a pod
+func (s *Scheduler) HandlePodEvent(event *watch.Event, execution *Execution) {
+	// We sometimes seem to receive events with a nil Object
+	if event.Object == nil {
+		return
+	}
+
+	// The events for this watcher contain a Pod as their object, so cast it to be one
+	eventPod := event.Object.(*v1.Pod)
+
+	// If this pod was already processed (either failed or succeeded) then discard the event
+	if _, processed := execution.ProcessedPods[eventPod.Name]; processed {
+		return
+	}
+
+	if _, created := execution.Pods[eventPod.Name]; !created && eventPod.Status.Phase == v1.PodRunning {
+		logrus.WithField("job", execution.Job.Name).WithField("pod", eventPod.Name).Info("New pod for job created")
+		execution.Pods[eventPod.Name] = eventPod
+		return
+	}
+
+	if eventPod.Status.Phase == v1.PodFailed || eventPod.Status.Phase == v1.PodSucceeded {
+		// We keep a log of pods we have processed to ensure we only retrieve the logs for it once
+		execution.ProcessedPods[eventPod.Name] = true
+
+		// Now retrieve the actual logs
+		logs := s.PodLogs(eventPod)
+
+		if eventPod.Status.Phase == v1.PodFailed {
+			logrus.WithField("logs", "\n"+logs).Error("Pod execution failed")
+		} else {
+			logrus.WithField("logs", "\n"+logs).Info("Pod execution succeeded")
+		}
+
+		return
+	}
 }
 
 // PodLogs retrieves the pods for a pod in kubernetes
@@ -292,11 +345,6 @@ func (s *Scheduler) PodLogs(pod *v1.Pod) string {
 	buf.ReadFrom(reader)
 
 	return buf.String()
-}
-
-// HasRunningJob checks if there is already a job running
-func (s *Scheduler) HasRunningJob() bool {
-	return s.running > 0
 }
 
 // Namespace retrieves the namespace kronjob is running in to determine where to run jobs
@@ -356,4 +404,22 @@ func (s *Scheduler) JobSpec() *batchv1.JobSpec {
 	s.jobSpec = jobSpec
 
 	return jobSpec
+}
+
+// makeShutdownCh creates an interrupt listener and returns a channel.
+// A message will be sent on the channel for every interrupt received.
+func makeShutdownCh() chan error {
+	resultCh := make(chan error)
+	signalCh := make(chan os.Signal, 2)
+	signal.Notify(signalCh, os.Interrupt, syscall.SIGTERM)
+
+	go func() {
+		for {
+			logrus.Info("Shutdown signal received")
+			<-signalCh
+			resultCh <- nil
+		}
+	}()
+
+	return resultCh
 }

@@ -27,26 +27,32 @@ test:
 build:
 	cd cmd && go build -ldflags "$(LD_RELEASE_FLAGS)" -o ../$(BUILD_DIR)/kronjob
 
-run:
+run: k8s_delete_ns docker apply
+
+apply: k8s_create_ns k8s_apply
+
+docker: docker_binary docker_image docker_publish
+
+# Kubernetes commands
+k8s_delete_ns:
 	-kubectl delete namespace kronjob-test
-	make docker publish_docker apply
 
-apply:
+k8s_create_ns:
 	-kubectl create namespace kronjob-test
-	kubectl apply -f examples/random-fail.yaml --namespace=kronjob-test
-	kubectl get pods --namespace kronjob-test
 
-# builds a statically linked binary for linux-amd64
-dockerbinary:
+k8s_apply:
+	kubectl apply -f examples/random-fail.yaml --namespace=kronjob-test
+
+# Docker commands
+docker_binary:
 	cd cmd && GOOS=linux GOARCH=amd64 CGO_ENABLED=0 go build -ldflags "$(LD_RELEASE_FLAGS)" -o ../$(BUILD_DIR)/kronjob;
 
-docker: dockerbinary
+docker_image:
 	cp docker/* ./$(BUILD_DIR)/
 	docker build -t eneco/kronjob ./$(BUILD_DIR)/
 	docker tag eneco/kronjob eneco/kronjob:latest
 	docker tag eneco/kronjob eneco/kronjob:$(GIT_TAG)
 
-
-publish_docker: docker
+docker_publish:
 	docker push eneco/kronjob:latest
 	docker push eneco/kronjob:$(GIT_TAG)
