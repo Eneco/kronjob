@@ -5,13 +5,18 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"net/http"
 	"os"
 	"os/signal"
 	"syscall"
 	"time"
 
 	"github.com/Sirupsen/logrus"
+	"github.com/armon/go-metrics"
+	"github.com/armon/go-metrics/prometheus"
 	"github.com/ghodss/yaml"
+	"github.com/prometheus/client_golang/prometheus/promhttp"
 	"gopkg.in/robfig/cron.v2"
 	"k8s.io/client-go/kubernetes"
 	"k8s.io/client-go/pkg/api/unversioned"
@@ -27,8 +32,10 @@ type Scheduler struct {
 	cron              *cron.Cron
 	currentExecutions map[string]*Execution
 	jobSpec           *batchv1.JobSpec
+	metrics           *metrics.Metrics
 	namespace         string
 	shutdownCh        chan error
+	metricsSink       *metrics.Metrics
 }
 
 // NewScheduler creates and initializes a Scheduler which can be used to execute the job template on a given cron schedule
@@ -46,6 +53,24 @@ func NewScheduler(cfg *Config) (*Scheduler, error) {
 		shutdownCh:        makeShutdownCh(),
 	}
 
+	if cfg.EnableMetricsPrometheus {
+		sink, err := prometheus.NewPrometheusSink()
+		if err != nil {
+			return nil, err
+		}
+
+		metricsSink, err := metrics.New(metrics.DefaultConfig(cfg.ContainerName), sink)
+		if err != nil {
+			return nil, err
+		}
+
+		scheduler.metricsSink = metricsSink
+	}
+
+	if err != nil {
+		return nil, err
+	}
+
 	logrus.WithField("namespace", scheduler.Namespace()).Info("Created scheduler")
 
 	return scheduler, nil
@@ -61,6 +86,15 @@ func (s *Scheduler) Run() {
 	})
 
 	s.cron.Start()
+
+	if s.cfg.EnableMetricsPrometheus {
+		go func() {
+			http.Handle("/metrics", promhttp.Handler())
+			log.Fatal(http.ListenAndServe(":9102", nil))
+		}()
+
+		logrus.Info("Exposing prometheus /metrics scraping endpoint on :9201")
+	}
 
 	err := <-s.shutdownCh
 	if err != nil {
@@ -145,6 +179,10 @@ func (s *Scheduler) CreateJob() (*batchv1.Job, error) {
 
 	logrus.WithField("job", name).Info("Job created")
 
+	if s.cfg.EnableMetricsPrometheus {
+		s.metricsSink.IncrCounter([]string{"jobs_started"}, 1)
+	}
+
 	return job, nil
 }
 
@@ -181,6 +219,10 @@ func (s *Scheduler) CleanJob(execution *Execution) error {
 	logrus.WithField("job", execution.Job.Name).Info("Job successfully cleaned up")
 	execution.Cleaned = true
 
+	if s.cfg.EnableMetricsPrometheus {
+		s.metricsSink.IncrCounter([]string{"jobs_cleaned"}, 1)
+	}
+
 	return nil
 }
 
@@ -213,6 +255,9 @@ func (s *Scheduler) MonitorJob(execution *Execution) error {
 			select {
 			case <-execution.StopJobWatchCh:
 				logrus.WithField("job", execution.Job.Name).Info("Stop monitoring job")
+				if s.cfg.EnableMetricsPrometheus {
+					s.metricsSink.IncrCounter([]string{"job_watches_stopped"}, 1)
+				}
 				return
 
 			case event = <-watcher.ResultChan():
@@ -242,6 +287,9 @@ func (s *Scheduler) MonitorPods(execution *Execution) error {
 			select {
 			case <-execution.StopPodWatchCh:
 				logrus.WithField("job", execution.Job.Name).Info("Stop tailing pods for job...")
+				if s.cfg.EnableMetricsPrometheus {
+					s.metricsSink.IncrCounter([]string{"job_pod_watches_stopped"}, 1)
+				}
 				return
 			case event = <-watcher.ResultChan():
 				s.HandlePodEvent(&event, execution)
@@ -264,8 +312,17 @@ func (s *Scheduler) HandleJobEvent(event *watch.Event, execution *Execution) {
 	if latestJob.Status.Succeeded > 0 || time.Since(execution.StartTime).Seconds() > float64(s.cfg.Deadline) {
 		if latestJob.Status.Succeeded > 0 {
 			logrus.WithField("job", execution.Job.Name).Info("Completed job...")
+
+			if s.cfg.EnableMetricsPrometheus {
+				s.metricsSink.IncrCounter([]string{"jobs_completed"}, 1)
+				s.metricsSink.MeasureSince([]string{"last_job_duration"}, s.currentExecutions[latestJob.Name].StartTime)
+			}
 		} else {
 			logrus.WithField("job", execution.Job.Name).Error("Failed to complete job within deadline...")
+
+			if s.cfg.EnableMetricsPrometheus {
+				s.metricsSink.IncrCounter([]string{"jobs_timed_out"}, 1)
+			}
 		}
 
 		execution.Stop(nil)
@@ -279,7 +336,12 @@ func (s *Scheduler) HandleJobEvent(event *watch.Event, execution *Execution) {
 			WithField("failed", latestJob.Status.Failed).
 			WithField("job", latestJob.Name).
 			Infof("Job execution failed")
+
 		execution.Failures = latestJob.Status.Failed
+
+		if s.cfg.EnableMetricsPrometheus {
+			s.metricsSink.IncrCounter([]string{"jobs_failed"}, 1)
+		}
 		return
 	}
 
@@ -287,6 +349,11 @@ func (s *Scheduler) HandleJobEvent(event *watch.Event, execution *Execution) {
 		logrus.
 			WithField("job", latestJob.Name).
 			Info("Job activated...")
+
+		if s.cfg.EnableMetricsPrometheus {
+			s.metricsSink.IncrCounter([]string{"jobs_activated"}, 1)
+		}
+
 		return
 	}
 }
@@ -309,6 +376,11 @@ func (s *Scheduler) HandlePodEvent(event *watch.Event, execution *Execution) {
 	if _, created := execution.Pods[eventPod.Name]; !created && eventPod.Status.Phase == v1.PodRunning {
 		logrus.WithField("job", execution.Job.Name).WithField("pod", eventPod.Name).Info("New pod for job created")
 		execution.Pods[eventPod.Name] = eventPod
+
+		if s.cfg.EnableMetricsPrometheus {
+			s.metricsSink.IncrCounter([]string{"job_pods_created"}, 1)
+		}
+
 		return
 	}
 

@@ -45,7 +45,11 @@ func init() {
 	deadline := os.Getenv("DEADLINE")
 	containerName := os.Getenv("HOSTNAME")
 	namespace := os.Getenv("NAMESPACE")
-	allowParallel := strings.ToLower(os.Getenv("ALLOW_PARALLEL")) == "true"
+	allowParalellVal := os.Getenv("ALLOW_PARALLEL")
+	enableMetricsPrometheusVal := os.Getenv("ENABLE_METRICS_PROMETHEUS")
+
+	allowParallel := len(allowParalellVal) == 0 || strings.ToLower(allowParalellVal) != "false"
+	enableMetricsPrometheus := len(enableMetricsPrometheusVal) == 0 || strings.ToLower(enableMetricsPrometheusVal) != "false"
 
 	if deadline == "" {
 		deadline = "60"
@@ -60,6 +64,7 @@ func init() {
 	f.StringVar(&cfg.ContainerName, "container-name", containerName, "the name of the container that runs kronjob. this is automatically set by kubernetes in each pod. used to find which namespace the jobs should run in")
 	f.StringVar(&cfg.Namespace, "namespace", namespace, "the namespace the jobs should be run in")
 	f.BoolVarP(&cfg.AllowParallel, "allow-parallel", "p", allowParallel, "allow jobs to run in parallel. defaults to false")
+	f.BoolVar(&cfg.EnableMetricsPrometheus, "enable-metrics-prometheus", enableMetricsPrometheus, "enable the collection of metrics and expose them through a /metrics prometheus scraping endpoint")
 
 	rootCmd.AddCommand(runCmd)
 }
