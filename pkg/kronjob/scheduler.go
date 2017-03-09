@@ -415,8 +415,8 @@ func makeShutdownCh() chan error {
 
 	go func() {
 		for {
-			logrus.Info("Shutdown signal received")
 			<-signalCh
+			logrus.Info("Shutdown signal received")
 			resultCh <- nil
 		}
 	}()
