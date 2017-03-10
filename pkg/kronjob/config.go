@@ -7,6 +7,8 @@ type Config struct {
 	Deadline                int
 	EnableMetricsPrometheus bool
 	Namespace               string
+	PrometheusEndpointPath  string
+	PrometheusEndpointPort  int
 	Schedule                string
 	Template                string
 	Verbose                 bool

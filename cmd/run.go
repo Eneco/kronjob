@@ -47,14 +47,23 @@ func init() {
 	namespace := os.Getenv("NAMESPACE")
 	allowParalellVal := os.Getenv("ALLOW_PARALLEL")
 	enableMetricsPrometheusVal := os.Getenv("ENABLE_METRICS_PROMETHEUS")
+	prometheusEndpointPort := os.Getenv("PROMETHEUS_ENDPOINT_PORT")
+	prometheusEndpointPath := os.Getenv("PROMETHEUS_ENDPOINT_PATH")
 
 	allowParallel := len(allowParalellVal) == 0 || strings.ToLower(allowParalellVal) != "false"
 	enableMetricsPrometheus := len(enableMetricsPrometheusVal) == 0 || strings.ToLower(enableMetricsPrometheusVal) != "false"
 
+	if prometheusEndpointPath == "" {
+		prometheusEndpointPath = "/metrics"
+	}
+	if prometheusEndpointPort == "" {
+		prometheusEndpointPort = "9102"
+	}
+	prometheusEndpointPortInt, _ := strconv.Atoi(prometheusEndpointPort)
+
 	if deadline == "" {
 		deadline = "60"
 	}
-
 	deadlineInt, _ := strconv.Atoi(deadline)
 
 	f.BoolVarP(&cfg.Verbose, "verbose", "v", false, "be verbose. defaults to false")
@@ -65,6 +74,8 @@ func init() {
 	f.StringVar(&cfg.Namespace, "namespace", namespace, "the namespace the jobs should be run in")
 	f.BoolVarP(&cfg.AllowParallel, "allow-parallel", "p", allowParallel, "allow jobs to run in parallel. defaults to false")
 	f.BoolVar(&cfg.EnableMetricsPrometheus, "enable-metrics-prometheus", enableMetricsPrometheus, "enable the collection of metrics and expose them through a /metrics prometheus scraping endpoint")
+	f.StringVar(&cfg.PrometheusEndpointPath, "prometheus-endpoint-path", prometheusEndpointPath, "the path the prometheus scraping endpoint expose metrics. defaults to /metrics")
+	f.IntVar(&cfg.PrometheusEndpointPort, "prometheus-endpoint-port", prometheusEndpointPortInt, "the port the prometheus scraping endpoint will listen on. defaults to 9102")
 
 	rootCmd.AddCommand(runCmd)
 }
