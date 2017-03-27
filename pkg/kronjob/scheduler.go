@@ -62,7 +62,7 @@ func NewScheduler(cfg *Config) (*Scheduler, error) {
 		}
 	}
 
-	metricsSink, err := metrics.New(metrics.DefaultConfig(cfg.ContainerName), sink)
+	metricsSink, err := metrics.New(metrics.DefaultConfig("kronjob"), sink)
 	if err != nil {
 		return nil, err
 	}
