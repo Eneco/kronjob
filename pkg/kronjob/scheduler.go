@@ -80,12 +80,14 @@ func NewScheduler(cfg *Config) (*Scheduler, error) {
 
 // Run starts the cron schedule and blocks until an error is potentially returned in the job execution
 func (s *Scheduler) Run() {
-	s.cron.AddFunc(s.cfg.Schedule, func() {
+	if _, err := s.cron.AddFunc(s.cfg.PlainSchedule, func() {
 		err := s.Exec()
 		if err != nil {
 			s.shutdownCh <- err
 		}
-	})
+	}); err != nil {
+		logrus.Fatal(err)
+	}
 
 	s.cron.Start()
 
@@ -163,9 +165,8 @@ func (s *Scheduler) CreateJob() (*batchv1.Job, error) {
 	name := fmt.Sprintf("%s-job-%d", s.cfg.ContainerName, time.Now().Unix())
 	jobSpec := s.JobSpec()
 
-	logrus.
-		WithField("name", name).
-		WithField("schedule", s.cfg.Schedule).
+	logrus.WithField("name", name).
+		WithField("schedule", s.cfg.PlainSchedule).
 		WithField("job", name).
 		Info("Creating job")
 

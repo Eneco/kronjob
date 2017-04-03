@@ -2,9 +2,12 @@ package main
 
 import (
 	"errors"
+	"fmt"
 	"os"
 	"strconv"
 	"strings"
+
+	cron "gopkg.in/robfig/cron.v2"
 
 	"github.com/Sirupsen/logrus"
 	"github.com/eneco/kronjob/pkg/kronjob"
@@ -15,21 +18,27 @@ var runCmd = &cobra.Command{
 	Use:   "run",
 	Short: "Starts the kronjob scheduler",
 	RunE: func(cmd *cobra.Command, args []string) error {
-		if cfg.Schedule == "" {
+		if cfg.PlainSchedule == "" {
 			return errors.New("a schedule is required through either the environment or the --schedule parameter")
 		}
 		if cfg.Template == "" {
 			return errors.New("a job template is required through either the environment or the --template parameter")
 		}
 
+		var err error
+		cfg.Schedule, err = cron.Parse(cfg.PlainSchedule)
+		if err != nil {
+			return fmt.Errorf("cannot parse cron schedule: %s", err)
+		}
+
 		v := kronjob.GetVersion()
+		logrus.WithFields(logrus.Fields{"tag": v.GitTag, "commit": v.GitCommit}).Infof("This is Kronjob v%s", v.SemVer)
+		logrus.WithFields(logrus.Fields{"schedule": cfg.PlainSchedule, "verbose": cfg.Verbose}).Info("Start the scheduler")
+
 		scheduler, err := kronjob.NewScheduler(cfg)
 		if err != nil {
 			return err
 		}
-
-		logrus.WithFields(logrus.Fields{"tag": v.GitTag, "commit": v.GitCommit}).Infof("This is Kronjob v%s", v.SemVer)
-		logrus.WithFields(logrus.Fields{"schedule": cfg.Schedule, "verbose": cfg.Verbose}).Info("Start the scheduler")
 
 		scheduler.Run()
 
@@ -67,7 +76,7 @@ func init() {
 	deadlineInt, _ := strconv.Atoi(deadline)
 
 	f.BoolVarP(&cfg.Verbose, "verbose", "v", false, "be verbose. defaults to false")
-	f.StringVar(&cfg.Schedule, "schedule", schedule, "the cron schedule to use")
+	f.StringVar(&cfg.PlainSchedule, "schedule", schedule, "the cron schedule to use")
 	f.StringVar(&cfg.Template, "template", template, "the job template to use")
 	f.IntVar(&cfg.Deadline, "deadline", deadlineInt, "the jobs deadline in seconds. defaults to 60")
 	f.StringVar(&cfg.ContainerName, "container-name", containerName, "the name of the container that runs kronjob. this is automatically set by kubernetes in each pod. used to find which namespace the jobs should run in")
