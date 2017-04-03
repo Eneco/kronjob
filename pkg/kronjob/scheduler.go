@@ -85,10 +85,12 @@ func (s *Scheduler) Run() {
 		if err != nil {
 			s.shutdownCh <- err
 		}
+		logrus.Infof("The next job is scheduled to be at %s", s.cfg.Schedule.Next(time.Now()).Format(time.RFC3339Nano))
 	}); err != nil {
 		logrus.Fatal(err)
 	}
 
+	logrus.Infof("The first job is scheduled to be at %s", s.cfg.Schedule.Next(time.Now()).Format(time.RFC3339Nano))
 	s.cron.Start()
 
 	if s.cfg.EnableMetricsPrometheus {
