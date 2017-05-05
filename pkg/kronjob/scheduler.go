@@ -311,6 +311,7 @@ func (s *Scheduler) HandleJobEvent(event *watch.Event, execution *Execution) {
 
 			s.metricsSink.IncrCounter([]string{"jobs_completed"}, 1)
 			s.metricsSink.MeasureSince([]string{"last_job_duration"}, s.currentExecutions[latestJob.Name].StartTime)
+			s.metricsSink.SetGauge([]string{"last_job_success_unixtime"}, float32(time.Now().Unix()))
 		} else {
 			logrus.WithField("job", execution.Job.Name).Error("Failed to complete job within deadline...")
 
@@ -331,6 +332,7 @@ func (s *Scheduler) HandleJobEvent(event *watch.Event, execution *Execution) {
 
 		execution.Failures = latestJob.Status.Failed
 		s.metricsSink.IncrCounter([]string{"jobs_failed"}, 1)
+		s.metricsSink.SetGauge([]string{"last_job_failure_unixtime"}, float32(time.Now().Unix()))
 
 		return
 	}
@@ -387,7 +389,7 @@ func (s *Scheduler) HandlePodEvent(event *watch.Event, execution *Execution) {
 	}
 }
 
-// PodLogs retrieves the pods for a pod in kubernetes
+// PodLogs retrieves the logs for a pod in kubernetes
 func (s *Scheduler) PodLogs(pod *v1.Pod) string {
 	sinceTime := unversioned.NewTime(time.Now().Add(time.Duration(-1 * time.Hour)))
 	reader, err := s.client.Core().Pods(s.Namespace()).GetLogs(pod.Name, &v1.PodLogOptions{
