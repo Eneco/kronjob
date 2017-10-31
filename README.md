@@ -1,3 +1,15 @@
+kronjob is not maintained anymore, since Cron Jobs are part of Kubernetes since a while.
+
+
+
+
+
+
+
+
+
+
+
 [![Build Status](https://travis-ci.org/Eneco/kronjob.svg?branch=master)](https://travis-ci.org/Eneco/kronjob)
 
 # kronjob
